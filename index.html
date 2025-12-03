@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>高股息轮动策略 (Excel智能版)</title>
+    <title>高股息轮动策略 (Excel严格匹配版)</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <!-- 引入 SheetJS 用于解析 Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -325,7 +325,7 @@
         el.style.display = (el.style.display === 'block') ? 'none' : 'block';
     }
 
-    // === Excel 导入逻辑 (智能修复版) ===
+    // === Excel 导入逻辑 (智能严格版) ===
     function importFromExcel(input) {
         const file = input.files[0];
         if(!file) return;
@@ -344,10 +344,31 @@
                 const headers = jsonData[0].map(h => String(h).trim());
                 const codeIdx = headers.findIndex(h => /代码|Code/i.test(h));
                 const nameIdx = headers.findIndex(h => /名称|Name/i.test(h));
-                const divIdx = headers.findIndex(h => /分红|Dividend|派息|红利/i.test(h));
+                
+                // === 关键修改：严格匹配分红列名 ===
+                let divIdx = -1;
+                
+                // 优先级 1: 精确等于“分红”
+                divIdx = headers.indexOf('分红'); 
+                
+                // 优先级 2: 如果没找到，尝试“分红总额”或“现金分红”等明确表示总额的词
+                if (divIdx === -1) {
+                    const explicitTargets = ['分红总额', '现金分红', '现金分红总额', 'Dividend', 'Total Dividend'];
+                    divIdx = headers.findIndex(h => explicitTargets.includes(h));
+                }
+
+                // 优先级 3: 模糊匹配，但强制【排除】“每股” (Per Share)
+                // 只有当找不到精确列时才用这个，避免把 "每股分红" 误认为 "分红"
+                if (divIdx === -1) {
+                    divIdx = headers.findIndex(h => {
+                        const text = h.toUpperCase();
+                        // 包含分红/Dividend/派息，但绝不包含每股/EPS/Per Share
+                        return (/分红|DIVIDEND|派息/.test(text) && !/每股|EPS|PER SHARE/.test(text));
+                    });
+                }
 
                 if(codeIdx === -1 || divIdx === -1) {
-                    alert("❌ 无法识别列名。\n\n请确保 Excel 第一行包含：\n1. 【代码】\n2. 【分红】(年度现金分红总额)");
+                    alert("❌ 无法识别【代码】或【分红】列。\n\n请确保Excel包含列名“分红”（即年度分红总额）。");
                     return;
                 }
 
@@ -387,8 +408,9 @@
                     });
                 }
 
+                // 如果依然检测到大量小数值（可能是因为单位是亿但没写亿字），提示用户
                 if(smallValueCount > newStocks.length * 0.5) {
-                    let fix = confirm(`⚠️ 警告：检测到大部分分红数值较小。\n\n系统需要【元】为单位。\n● 如果你填的是【亿元】(如50代表50亿)，请点【确定】。\n● 如果确实是元，请点【取消】。`);
+                    let fix = confirm(`⚠️ 警告：系统读取到“分红”列数据较小（如 50）。\n\n系统需要单位为【元】。\n● 如果表格单位是【亿元】(50代表50亿)，请点【确定】。\n● 如果表格单位确实是元，请点【取消】。`);
                     if(fix) newStocks.forEach(s => s.dividend = s.dividend * 100000000);
                 }
 
