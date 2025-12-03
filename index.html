@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>高股息轮动策略 (Excel版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- 引入 SheetJS 用于解析 Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+        /* === 基础变量 === */
+        :root { --primary: #007bff; --bg: #f4f6f9; --card: #fff; --text: #333; --border: #eee; --selected: #e3f2fd; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 10px; padding-bottom: 80px; font-size: 14px; }
+        .container { max-width: 800px; margin: 0 auto; }
+
+        /* === 卡片框架 === */
+        .card { background: var(--card); border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 12px; overflow: hidden; transition: all 0.3s; }
+        .card-header { padding: 12px 15px; background: #fff; border-bottom: 1px solid transparent; display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 15px; user-select: none; cursor: pointer;}
+        .header-title { flex: 1; display: flex; align-items: center; gap: 5px; }
+        
+        .card-body { display: none; padding: 15px; }
+        .card.open .card-body { display: block; }
+        .card.open .card-header { border-bottom-color: var(--border); }
+        
+        .arrow { font-size: 12px; color: #999; transition: transform 0.3s; }
+        .card.open .arrow { transform: rotate(180deg); }
+
+        /* === 区域折叠头 (Section) === */
+        .section-header { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 6px; cursor: pointer; margin-bottom: 5px; user-select: none; border: 1px solid #eee; transition: background 0.2s; }
+        .section-header:active { background: #e9ecef; }
+        .section-header span { font-weight: 600; font-size: 13px; color: #555; }
+        .section-header .header-arrow { transform: rotate(0deg); transition: transform 0.3s; }
+        .section-header.expanded .header-arrow { transform: rotate(180deg); } 
+        .section-body { display: block; animation: fadeIn 0.3s; padding: 5px; border: 1px solid #f8f9fa; border-top: none; margin-bottom: 15px; }
+        .section-body.collapsed { display: none; } 
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* === 表单与按钮 === */
+        .form-row { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-end; }
+        .form-group { flex: 1; min-width: 0; }
+        .form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+        .form-group input, .form-group select { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ddd; border-radius: 6px; outline: none; font-size:13px; background:#fff;}
+        
+        .run-bar { display: flex; gap: 10px; align-items: flex-end; background:#f8f9fa; padding:10px; border-radius:6px; margin-top:0; }
+        @media (max-width: 600px) {
+            .run-bar { flex-wrap: wrap; }
+            .run-bar .form-group { min-width: 45%; flex: 1; }
+            .run-bar #btn-run-all { width: 100%; margin-top: 8px; padding: 12px; font-size: 16px; font-weight: bold; }
+        }
+
+        #adv-settings { background: #fff; border: 1px dashed #ddd; padding: 10px; border-radius: 6px; margin-top: 5px; display: none; }
+        .toggle-link { display: block; text-align: right; margin-top: 5px; margin-bottom: 5px; color: #007bff; font-size: 12px; cursor: pointer; user-select: none; }
+
+        .btn { border: none; border-radius: 6px; padding: 10px; color: #fff; cursor: pointer; font-weight: 500; display:flex; align-items:center; justify-content:center; transition: opacity 0.2s; }
+        .btn:active { opacity: 0.8; }
+        .btn:disabled { background: #ccc !important; cursor: not-allowed; }
+        .btn-blue { background: #007bff; } .btn-green { background: #28a745; } .btn-purple { background: #6f42c1; } .btn-gray { background: #6c757d; }
+        .btn-orange { background: #fd7e14; transition: all 0.3s ease; }
+        .btn-orange.unsaved { background-color: #dc3545 !important; animation: pulse-red 2s infinite; }
+        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(220, 53, 69, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); } }
+        
+        .btn-icon-square { width: 28px; height: 28px; padding: 0; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; }
+        .btn-edit-yellow { background: #ffca28; color: #333; }
+        .btn-del-red { background: #ef5350; color: #fff; }
+
+        .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; margin-bottom: 15px; margin-top: 15px; }
+        .stat-item { background: #f8f9fa; padding: 8px; border-radius: 6px; }
+        .stat-val { font-size: 16px; font-weight: bold; }
+        .stat-lbl { font-size: 11px; color: #888; }
+        .win { color: #d32f2f; } .loss { color: #2e7d32; }
+        
+        .summary-wrapper { overflow-x: auto; margin-bottom: 15px; border: 1px solid #eee; border-radius: 6px; max-height: 400px; }
+        .summary-table { width: 100%; font-size: 13px; border-collapse: collapse; background: #fff; min-width: 300px; }
+        .summary-table th { background: #f1f3f5; padding: 10px 8px; color: #555; font-weight: 600; text-align: right; position: sticky; top: 0; z-index: 10; }
+        .summary-table th:first-child { text-align: left; }
+        .summary-table td { padding: 12px 8px; border-bottom: 1px solid #eee; text-align: right; }
+        .summary-table td:first-child { text-align: left; }
+        .summary-table tr:hover { background: #f9f9f9; cursor: pointer; }
+        .summary-table tr.selected { background: #e3f2fd !important; border-left: 3px solid #007bff; }
+        .val-pos { color: #d32f2f; } .val-neg { color: #2e7d32; }
+
+        .base-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .base-table th { background: #f8f9fa; padding: 10px; text-align: left; font-size: 12px; color:#666; border-bottom: 1px solid #ddd; }
+        .base-table td { padding: 12px 5px; border-bottom: 1px solid #eee; text-align: left; font-size: 13px; vertical-align: middle; }
+        
+        .log-table { width: 100%; min-width: 600px; border-collapse: collapse; }
+        .log-table th { background: #fff; color: #666; font-size: 12px; position: sticky; top: 0; border-bottom: 2px solid #eee; text-align: left; padding: 8px 5px; z-index: 5; }
+        .log-table td { padding: 8px 5px; border-bottom: 1px solid #f0f0f0; font-size: 12px; vertical-align: middle; }
+        
+        .badge { padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #fff; font-weight: normal; }
+        .bg-red { background: #d32f2f; } .bg-green { background: #2e7d32; } .bg-gray { background: #999; }
+        
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; align-items: center; justify-content: center; }
+        .modal-box { background: #fff; padding: 20px; border-radius: 12px; width: 85%; max-width: 320px; }
+        
+        /* Excel 导入按钮样式 */
+        .file-input-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; }
+        .file-input-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
+    </style>
+</head>
+<body>
+<div class="container">
+<!-- 配置卡片 -->
+<div class="card open" id="card-config">
+    <div class="card-header" onclick="toggleCard('card-config')">
+        <div class="header-title"><span>⚙️ 策略与数据</span></div>
+        <span class="arrow">▼</span>
+    </div>
+    <div class="card-body">
+        <div style="background:#fff3cd; color:#856404; padding:10px; border-radius:6px; font-size:12px; margin-bottom:15px; border:1px solid #ffeeba;">
+            <b>💡 提示：</b> 策略已切换为 [高股息轮动]。<br>请导入包含【代码、名称、分红】列的 Excel 表格。分红填写年度总现金分红(元)。
+        </div>
+        
+        <div class="form-row">
+            <div class="file-input-wrapper">
+                <button class="btn btn-green" style="width:100%">📂 1. 从 Excel 导入股票与分红数据</button>
+                <input type="file" id="excel-file" accept=".xlsx, .xls, .csv" onchange="importFromExcel(this)">
+            </div>
+        </div>
+        
+        <div class="form-row" style="margin-top:10px;">
+            <div class="form-group" style="flex:2"><label>股票名称</label><input type="text" id="inName" placeholder="如: 农业银行"></div>
+            <div class="form-group" style="flex:1.5"><label>代码</label><input type="text" id="inCode" readonly></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>年度总现金分红(元)</label><input type="number" id="inDividend" placeholder="例如: 70000000000"></div>
+            <button class="btn btn-blue" style="margin-bottom:1px;" onclick="saveStock()">➕ 修改/添加单条</button>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
+            <button class="btn btn-purple" style="flex:1" id="btn-pull" onclick="syncFromGithub()">☁️ 拉取配置</button>
+            <button class="btn btn-orange" style="flex:1" id="btn-push" onclick="uploadToGithub()">🚀 2. 保存配置到 GitHub</button>
+        </div>
+    </div>
+</div>
+
+<!-- 列表卡片 -->
+<div class="card open" id="card-list">
+    <div class="card-header" onclick="toggleCard('card-list')">
+        <div class="header-title"><span>📋 监控池</span><span id="list-count" style="font-weight:normal;margin-left:5px;color:#999;"></span></div>
+        <span class="arrow">▼</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        <div style="max-height: 350px; overflow-y: auto;">
+            <table class="base-table">
+                <thead>
+                    <tr>
+                        <th>股票信息</th>
+                        <th style="width:35%;">登记分红(元)</th>
+                        <th style="text-align:center; width:90px;">操作</th>
+                        <th style="width:40px; text-align:center;"><input type="checkbox" id="check-all" onchange="toggleAllStocks(this)" checked></th>
+                    </tr>
+                </thead>
+                <tbody id="stock-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 结果卡片 -->
+<div class="card open" id="card-result">
+    <div class="card-header" onclick="toggleCard('card-result')">
+        <div class="header-title"><span>📊 高股息回测</span></div>
+        <span class="arrow">▼</span>
+    </div>
+    <div class="card-body">
+        <div class="run-bar">
+            <div class="form-group"><label>开始日期</label><input type="date" id="inStartDate"></div>
+            <div class="form-group"><label>结束日期</label><input type="date" id="inEndDate"></div>
+            <button class="btn btn-blue" id="btn-run-all" onclick="runBatchBacktest()">🚀 开始回测</button>
+        </div>
+
+        <div class="toggle-link" onclick="toggleAdvSettings()">🛠 策略参数设置 ▼</div>
+
+        <div id="adv-settings">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>🎯 目标股息率阈值 (%)</label>
+                    <input type="number" id="pYieldThreshold" step="0.1" value="5.0">
+                    <div style="font-size:10px;color:#999">高于此值买入，低于此值卖出</div>
+                </div>
+                <div class="form-group">
+                    <label>🔄 调仓频率</label>
+                    <select id="pRebalanceFreq">
+                        <option value="1">每日检查 (Daily)</option>
+                        <option value="5">每周检查 (Weekly)</option>
+                        <option value="20" selected>每月检查 (Monthly)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>买入仓位 (0-1)</label><input type="number" id="pPosSize" step="0.1" value="1.0"></div>
+            </div>
+        </div>
+
+        <div id="batch-progress" style="display:none; margin:12px 0; padding:10px; background:#e3f2fd; color:#0056b3; font-size:13px; border-radius:4px; text-align:center;"></div>
+
+        <!-- 结果统一展示容器 -->
+        <div id="results-container" style="display:none; margin-top:15px;">
+            <!-- 1. 收益排行榜 -->
+            <div id="batch-summary-box" style="margin-bottom:15px;">
+                <div class="section-header expanded" onclick="toggleSection('summary-content', this)">
+                    <span>📈 个股表现</span> <span class="arrow header-arrow">▼</span>
+                </div>
+                <div id="summary-content" class="section-body">
+                    <div class="summary-wrapper">
+                        <table class="summary-table">
+                            <thead><tr><th>股票</th><th>平均股息率</th><th>策略收益</th><th>持仓天数</th></tr></thead>
+                            <tbody id="summary-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. 组合策略 -->
+            <div id="portfolio-section" style="margin-bottom:15px;">
+                <div class="section-header expanded" onclick="toggleSection('portfolio-content', this)">
+                    <span>💰 高股息组合 (Portfolio)</span> <span class="arrow header-arrow">▼</span>
+                </div>
+                <div id="portfolio-content" class="section-body">
+                    <div style="text-align:right; margin-bottom:10px;">
+                        <button class="btn btn-orange" onclick="runPortfolioStrategy()" style="width:100%">🔄 重新计算组合</button>
+                    </div>
+                    <div class="stat-grid">
+                        <div class="stat-item"><div class="stat-val" id="port-ret">--</div><div class="stat-lbl">组合总收益</div></div>
+                        <div class="stat-item"><div class="stat-val" id="port-dd">--</div><div class="stat-lbl">最大回撤</div></div>
+                        <div class="stat-item"><div class="stat-val" id="port-yield">--</div><div class="stat-lbl">平均组合股息率</div></div>
+                    </div>
+                    <div id="portfolio-chart" style="width: 100%; height: 350px;"></div>
+                </div>
+            </div>
+        </div> 
+        
+        <!-- 单只详情 -->
+        <div id="detail-view" style="display:none; border-top: 2px dashed #eee; margin-top: 20px; padding-top: 15px;">
+            <h4 style="margin:0 0 10px 0;" id="detail-title">详细信息</h4>
+            <div id="chart-box" style="width: 100%; height: 400px;"></div>
+            <div style="margin-top:20px;">
+                <div class="section-header" onclick="toggleSection('log-content', this)">
+                    <span>📜 交易与股息率日志</span> <span class="arrow header-arrow">▼</span>
+                </div>
+                <div id="log-content" class="section-body collapsed" style="border:1px solid #eee; border-radius:6px; border-top:0;">
+                    <div style="max-height: 300px; overflow: auto;">
+                        <table class="log-table">
+                            <thead style="background:#f9f9f9;">
+                                <tr><th>日期</th><th>动作</th><th>股息率</th><th>说明</th></tr>
+                            </thead>
+                            <tbody id="log-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+</div>
+
+<!-- Token Modal -->
+<div id="token-modal" class="modal">
+    <div class="modal-box">
+        <h3>🔑 GitHub Token</h3>
+        <p style="font-size:12px;color:#666;margin-bottom:10px;">首次使用需要输入 Token 以保存配置到 GitHub。</p>
+        <input type="text" id="gh-token-input" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-bottom:15px;" placeholder="ghp_xxxx...">
+        <div style="display:flex; gap:10px;">
+            <button class="btn btn-gray" style="flex:1" onclick="document.getElementById('token-modal').style.display='none'">取消</button>
+            <button class="btn btn-blue" style="flex:1" onclick="saveToken()">确定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // === 配置与工具 ===
+    // 请修改这里的 repo 信息为你自己的
+    const GITHUB_CONFIG = { username: "dlezywj-cell", repo: "backtest", path: "dividend_config.json", branch: "main" };
+    const PROXY = 'https://corsproxy.io/?'; 
+    
+    // 数据结构：{ code: "600519.SH", name: "茅台", dividend: 70000000000, lastMod: "2023-12-01" }
+    let stocks = JSON.parse(localStorage.getItem('divStocks')) || [];
+    
+    let myChart = null;
+    let portfolioChart = null;
+    let batchResults = [];
+
+    // === 日期初始化 ===
+    function initDates() {
+        const d = new Date();
+        document.getElementById('inEndDate').value = d.toISOString().split('T')[0];
+        d.setFullYear(d.getFullYear() - 1); // 默认回测一年
+        document.getElementById('inStartDate').value = d.toISOString().split('T')[0];
+    }
+    initDates();
+    renderTable();
+    checkUnsavedStatus();
+
+    // === UI 交互 ===
+    function checkUnsavedStatus() {
+        const dirty = localStorage.getItem('divHasUnsavedChanges') === 'true';
+        const btn = document.getElementById('btn-push');
+        if (dirty) {
+            btn.classList.add('unsaved');
+            btn.innerHTML = "🔴 待同步配置";
+        } else {
+            btn.classList.remove('unsaved');
+            btn.innerHTML = "🚀 2. 保存配置到 GitHub";
+        }
+    }
+    function setLocalChanges(isDirty) {
+        localStorage.setItem('divHasUnsavedChanges', isDirty);
+        checkUnsavedStatus();
+    }
+    function toggleCard(id) { 
+        const el = document.getElementById(id); el.classList.toggle('open'); 
+        if(el.classList.contains('open') && (myChart || portfolioChart)) { setTimeout(() => { if(myChart) myChart.resize(); if(portfolioChart) portfolioChart.resize(); }, 200); }
+    }
+    function toggleSection(contentId, headerEl) {
+        const content = document.getElementById(contentId);
+        content.classList.toggle('collapsed');
+        headerEl.classList.toggle('expanded');
+    }
+    function toggleAdvSettings() {
+        const el = document.getElementById('adv-settings');
+        el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+    }
+
+    // === Excel 导入逻辑 (SheetJS) ===
+    function importFromExcel(input) {
+        const file = input.files[0];
+        if(!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1}); // 数组格式
+
+                if(jsonData.length < 2) throw new Error("Excel 数据太少");
+                
+                // 简单的列名识别
+                const headers = jsonData[0].map(h => String(h).trim());
+                const codeIdx = headers.findIndex(h => h.includes("代码") || h.includes("Code"));
+                const nameIdx = headers.findIndex(h => h.includes("名称") || h.includes("Name"));
+                const divIdx = headers.findIndex(h => h.includes("分红") || h.includes("Dividend") || h.includes("派息"));
+
+                if(codeIdx === -1 || divIdx === -1) {
+                    alert("❌ 无法识别列名。请确保 Excel 第一行包含【代码】和【分红】列。");
+                    return;
+                }
+
+                let newStocks = [];
+                let today = new Date().toISOString().split('T')[0];
+
+                for(let i=1; i<jsonData.length; i++) {
+                    const row = jsonData[i];
+                    if(!row[codeIdx]) continue;
+                    
+                    let rawCode = String(row[codeIdx]).trim();
+                    // 简单的后缀补全
+                    let suffix = "";
+                    if (/^\d{5}$/.test(rawCode)) suffix = ".HK"; 
+                    else if (/^\d{6}$/.test(rawCode)) suffix = rawCode.startsWith('6') ? ".SH" : ".SZ";
+                    
+                    if(!rawCode.includes('.')) rawCode += suffix;
+
+                    let divVal = parseFloat(row[divIdx]);
+                    if(isNaN(divVal)) divVal = 0;
+
+                    // 这里的 dividend 是年度总分红(元)
+                    newStocks.push({
+                        code: rawCode,
+                        name: row[nameIdx] || rawCode,
+                        dividend: divVal,
+                        lastMod: today
+                    });
+                }
+
+                if(confirm(`解析成功！共找到 ${newStocks.length} 条数据。\n是否覆盖当前列表？`)) {
+                    stocks = newStocks;
+                    localStorage.setItem('divStocks', JSON.stringify(stocks));
+                    renderTable();
+                    setLocalChanges(true);
+                    alert("✅ 导入成功！记得点击【保存配置到 GitHub】");
+                }
+            } catch(err) {
+                alert("❌ 读取 Excel 失败: " + err.message);
+            }
+            input.value = ''; // 重置 file input
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    // === 数据操作 ===
+    function renderTable() {
+        const tb = document.getElementById('stock-tbody'); 
+        tb.innerHTML = stocks.map((s, i) => {
+            // 格式化大数字
+            let divStr = (s.dividend / 100000000).toFixed(2) + "亿";
+            return `
+            <tr>
+                <td><b>${s.name}</b> <span style="color:#999;font-size:12px">${s.code}</span></td>
+                <td>${divStr}</td>
+                <td style="text-align:center;"><div class="op-btn-group" style="display:flex;justify-content:center;gap:5px;">
+                    <button class="btn btn-edit-yellow btn-icon-square" onclick="editStock(${i})">✎</button>
+                    <button class="btn btn-del-red btn-icon-square" onclick="delStock(${i})">✕</button>
+                </div></td>
+                <td style="text-align:center;"><input type="checkbox" class="stock-chk" value="${i}" checked></td>
+            </tr>
+        `}).join('');
+        document.getElementById('list-count').innerText = `(${stocks.length})`;
+        checkAllState();
+    }
+
+    function editStock(i) {
+        const s = stocks[i];
+        document.getElementById('inName').value = s.name;
+        document.getElementById('inCode').value = s.code;
+        document.getElementById('inDividend').value = s.dividend;
+        document.getElementById('card-config').scrollIntoView({behavior: 'smooth'});
+    }
+
+    function saveStock() {
+        const code = document.getElementById('inCode').value; 
+        const name = document.getElementById('inName').value; 
+        const div = parseFloat(document.getElementById('inDividend').value);
+        if(!code || isNaN(div)) return alert("请填写完整，代码可从列表选择编辑或手动输入");
+        
+        const today = new Date().toISOString().split('T')[0];
+        const item = { code, name, dividend: div, lastMod: today }; 
+        
+        const idx = stocks.findIndex(s => s.code === code);
+        if(idx >= 0) stocks[idx] = item; else stocks.push(item); 
+        
+        localStorage.setItem('divStocks', JSON.stringify(stocks)); 
+        renderTable(); 
+        setLocalChanges(true);
+        alert("已更新本地列表");
+    }
+
+    function delStock(i) {
+        if(confirm("删除此条?")) {
+            stocks.splice(i, 1);
+            localStorage.setItem('divStocks', JSON.stringify(stocks));
+            renderTable();
+            setLocalChanges(true);
+        }
+    }
+    
+    function toggleAllStocks(el) { document.querySelectorAll('.stock-chk').forEach(chk => chk.checked = el.checked); }
+    function checkAllState() { const all = document.querySelectorAll('.stock-chk'); const checked = document.querySelectorAll('.stock-chk:checked'); document.getElementById('check-all').checked = (all.length > 0 && all.length === checked.length); }
+    document.addEventListener('change', function(e){ if(e.target.classList.contains('stock-chk')) checkAllState(); });
+
+    // === GitHub 同步 ===
+    function safeB64ToUtf8(str) { return decodeURIComponent(escape(window.atob(str.replace(/\s/g, '')))); }
+    function utf8ToB64(str) { return window.btoa(unescape(encodeURIComponent(str))); }
+    
+    async function uploadToGithub() {
+        let token = localStorage.getItem("github_token");
+        if (!token) { document.getElementById('token-modal').style.display='flex'; return; }
+        const btn = document.getElementById('btn-push'); const origin = btn.innerText; btn.innerText = "⏳"; btn.disabled = true;
+        try {
+            const url = `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`;
+            const get = await fetch(url, { headers: { "Authorization": `token ${token.trim()}` } });
+            let sha = null; if (get.ok) sha = (await get.json()).sha;
+            await fetch(url, { method: "PUT", headers: { "Authorization": `token ${token.trim()}` }, body: JSON.stringify({ message: "Update dividend config", content: utf8ToB64(JSON.stringify(stocks, null, 2)), sha }) });
+            alert("✅ 同步成功!");
+            setLocalChanges(false);
+        } catch (e) { alert("❌ " + e.message); if(e.message.includes("401")) localStorage.removeItem("github_token"); } 
+        finally { btn.innerText = origin; btn.disabled = false; checkUnsavedStatus(); }
+    }
+    
+    async function syncFromGithub() {
+        let token = localStorage.getItem("github_token");
+        const btn = document.getElementById('btn-pull'); const origin = btn.innerText; btn.innerText = "⏳"; btn.disabled = true;
+        try {
+            const url = `https://api.github.com/repos/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/contents/${GITHUB_CONFIG.path}`;
+            const h = { "Accept": "application/vnd.github.v3+json" };
+            if(token) h["Authorization"] = `token ${token.trim()}`;
+            let res = await fetch(url, { headers: h });
+            let data;
+            if (res.ok) { data = JSON.parse(safeB64ToUtf8((await res.json()).content)); } 
+            else { 
+                const raw = await fetch(`https://raw.githubusercontent.com/${GITHUB_CONFIG.username}/${GITHUB_CONFIG.repo}/${GITHUB_CONFIG.branch}/${GITHUB_CONFIG.path}?t=${Date.now()}`); 
+                if(!raw.ok) throw new Error("云端无数据"); data = await raw.json(); 
+            }
+            if(Array.isArray(data) && confirm(`云端有 ${data.length} 条数据，覆盖本地？`)) { 
+                stocks = data; 
+                localStorage.setItem('divStocks', JSON.stringify(stocks)); 
+                renderTable(); 
+                setLocalChanges(false); 
+            }
+        } catch (e) { alert("❌ " + e.message); } finally { btn.innerText = origin; btn.disabled = false; }
+    }
+    function saveToken() { const t = document.getElementById('gh-token-input').value.trim(); if(t) { localStorage.setItem('github_token', t); document.getElementById('token-modal').style.display='none'; uploadToGithub(); } }
+
+    // === 核心回测逻辑：高股息算法 ===
+    const getEmSecId = c => { let raw = c.replace(/\.[A-Z]+$/, ''); if (c.includes('.HK') || /^\d{5}$/.test(raw)) return '116.' + raw.padStart(5, '0'); if (raw.startsWith('6')) return '1.' + raw; return '0.' + raw; };
+    
+    async function fetchEmKline(secId) {
+        const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1&fields2=f51,f53&klt=101&fqt=1&end=20500101&lmt=500`;
+        const res = await fetch(PROXY + encodeURIComponent(url));
+        const json = await res.json();
+        return json?.data?.klines || [];
+    }
+
+    async function calculateStock(stock) {
+        const yieldThreshold = parseFloat(document.getElementById('pYieldThreshold').value) || 5.0; // %
+        const targetPos = parseFloat(document.getElementById('pPosSize').value) || 1.0;
+        const rebalanceFreq = parseInt(document.getElementById('pRebalanceFreq').value) || 20; // Days
+        
+        let emSecId = getEmSecId(stock.code); 
+        let emCode = emSecId.split('.')[1];
+
+        // 1. 获取总股本 (Total Shares) 以计算市值
+        // f20 = 总市值(元), f2 = 最新价. TotalShares = f20 / f2.
+        const snapUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${emSecId}&fields=f2,f20&invt=2&fltt=2`;
+        const snapRes = await fetch(PROXY + encodeURIComponent(snapUrl));
+        const snapJson = await snapRes.json();
+        
+        let totalShares = 0;
+        if (snapJson.data?.diff) {
+            let d = Array.isArray(snapJson.data.diff) ? snapJson.data.diff[0] : snapJson.data.diff[emCode];
+            if(d && d.f2 > 0) totalShares = d.f20 / d.f2;
+        }
+        
+        if(!totalShares) throw new Error(`无法获取股本数据 (API限制或退市)`);
+
+        // 2. 获取K线
+        const klines = await fetchEmKline(emSecId);
+        if(!klines || klines.length === 0) throw new Error("无K线数据");
+
+        // 3. 回测循环
+        const userStartDate = document.getElementById('inStartDate').value;
+        const userEndDate = document.getElementById('inEndDate').value;
+        const totalDiv = stock.dividend; // 用户填写的年度总分红(元)
+
+        let history = []; 
+        let logs = [];
+        let nav = 1.0; 
+        let hold = 0; // 0 或 1 (代表 targetPos)
+        let daysHeld = 0;
+        let sumYield = 0; 
+        let yieldCount = 0;
+
+        // K线处理
+        let filteredKlines = [];
+        klines.forEach(k => {
+            const parts = k.split(',');
+            if (parts[0] >= userStartDate && parts[0] <= userEndDate) {
+                filteredKlines.push({ date: parts[0], close: parseFloat(parts[1]) });
+            }
+        });
+        
+        if(filteredKlines.length === 0) throw new Error("日期范围内无数据");
+
+        // 初始化
+        history.push({ 
+            date: filteredKlines[0].date, 
+            nav: 1.0, 
+            close: filteredKlines[0].close, 
+            pos: 0, 
+            dy: (totalDiv / (filteredKlines[0].close * totalShares)) * 100 
+        });
+
+        // Loop
+        for(let i=1; i<filteredKlines.length; i++) {
+            const d = filteredKlines[i];
+            const prevD = filteredKlines[i-1];
+            
+            // 每日计算股息率 = 总分红 / (股价 * 总股本)
+            // 假设回测期间股本不变 (简化)
+            const marketCap = d.close * totalShares;
+            const currentYield = (totalDiv / marketCap) * 100; // %
+            
+            // 统计用
+            sumYield += currentYield; yieldCount++;
+
+            // 策略逻辑：只在调仓日检查
+            // i % rebalanceFreq (简单近似)
+            let action = null;
+            let reason = "";
+
+            if (i % rebalanceFreq === 0) {
+                if (currentYield > yieldThreshold) {
+                    if (hold === 0) {
+                        hold = targetPos;
+                        action = `<span class="badge bg-red">买入</span>`;
+                        reason = `股息率 ${currentYield.toFixed(2)}% > ${yieldThreshold}%`;
+                    }
+                } else {
+                    if (hold > 0) {
+                        hold = 0;
+                        action = `<span class="badge bg-green">卖出</span>`;
+                        reason = `股息率 ${currentYield.toFixed(2)}% < ${yieldThreshold}%`;
+                    }
+                }
+            }
+            
+            // 计算净值
+            const r = (d.close / prevD.close) - 1;
+            nav = nav * (1 + hold * r);
+            if(hold > 0) daysHeld++;
+
+            if(action) {
+                logs.push({ date: d.date, action: action, dy: currentYield.toFixed(2)+'%', reason: reason });
+            }
+
+            history.push({ date: d.date, nav: nav, close: d.close, pos: hold, dy: currentYield });
+        }
+
+        const stats = {
+            ret: (history[history.length-1].nav - 1) * 100,
+            avgYield: yieldCount > 0 ? (sumYield / yieldCount) : 0,
+            daysHeld: daysHeld
+        };
+
+        return { 
+            stockName: stock.name, 
+            stockCode: stock.code, 
+            history: history, 
+            logs: logs, 
+            stats: stats 
+        };
+    }
+
+    // === 运行控制 ===
+    async function runBatchBacktest() {
+        const checkedBoxes = document.querySelectorAll('.stock-chk:checked');
+        if(checkedBoxes.length === 0) return alert("请至少勾选一只股票");
+        
+        const selectedIndices = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+        const btn = document.getElementById('btn-run-all');
+        const progress = document.getElementById('batch-progress');
+        
+        btn.innerText = "⏳ 计算中..."; btn.disabled = true;
+        document.getElementById('results-container').style.display = 'none';
+        document.getElementById('summary-tbody').innerHTML = '';
+        progress.style.display = 'block';
+        
+        batchResults = []; 
+        let successCount = 0;
+
+        for(let step=0; step < selectedIndices.length; step++) {
+            const i = selectedIndices[step]; const s = stocks[i];
+            progress.innerHTML = `正在计算 <b>${s.name}</b> (${step+1}/${selectedIndices.length})...`;
+            try {
+                const res = await calculateStock(s); 
+                res.index = i; 
+                batchResults.push(res); 
+                
+                // 添加到表格
+                const tr = document.createElement('tr');
+                tr.onclick = () => showDetail(i);
+                const cRet = res.stats.ret >= 0 ? 'val-pos' : 'val-neg';
+                tr.innerHTML = `<td><b>${res.stockName}</b></td><td>${res.stats.avgYield.toFixed(2)}%</td><td class="${cRet}">${res.stats.ret.toFixed(1)}%</td><td>${res.stats.daysHeld}天</td>`;
+                document.getElementById('summary-tbody').appendChild(tr);
+                
+                successCount++;
+            } catch(e) { console.error(s.name, e); }
+            await new Promise(r => setTimeout(r, 50));
+        }
+        
+        progress.innerHTML = `✅ 完成! 成功 ${successCount} 只`;
+        btn.innerText = "🚀 开始回测"; btn.disabled = false;
+        
+        if(batchResults.length > 0) {
+            document.getElementById('results-container').style.display = 'block';
+            runPortfolioStrategy();
+            showDetail(batchResults[0].index); // 默认展示第一个
+        }
+    }
+
+    function showDetail(index) {
+        const res = batchResults.find(r => r.index === index); 
+        if(!res) return;
+        
+        document.getElementById('detail-view').style.display = 'block';
+        document.getElementById('detail-title').innerText = `${res.stockName} (${res.stockCode})`;
+        document.querySelectorAll('.summary-table tr').forEach(r => r.classList.remove('selected'));
+        // 简单高亮逻辑省略...
+        
+        const dom = document.getElementById('chart-box'); 
+        if(myChart) myChart.dispose(); 
+        myChart = echarts.init(dom);
+        
+        const dates = res.history.map(h => h.date);
+        myChart.setOption({
+            tooltip: { trigger: 'axis', axisPointer: {type:'cross'} },
+            legend: { data: ['净值','股价','股息率(右)','仓位'], top:0 },
+            grid: [{left:'10%',right:'10%',top:'10%',height:'60%'}, {left:'10%',right:'10%',top:'75%',height:'15%'}],
+            xAxis: [{data:dates, gridIndex:0}, {data:dates, gridIndex:1, show:false}],
+            yAxis: [
+                {name:'净值/股价', position:'left'}, 
+                {name:'股息率%', position:'right', splitLine:{show:false}},
+                {gridIndex:1, max:1.2, splitLine:{show:false}, axisLabel:{show:false}}
+            ],
+            series: [
+                {name:'净值', type:'line', data:res.history.map(h=>h.nav), itemStyle:{color:'#d32f2f'}, lineStyle:{width:2}},
+                {name:'股价', type:'line', data:res.history.map(h=>h.close), itemStyle:{color:'#ccc'}, lineStyle:{width:1}},
+                {name:'股息率(右)', type:'line', yAxisIndex:1, data:res.history.map(h=>h.dy), itemStyle:{color:'#fd7e14'}, lineStyle:{width:1, type:'dashed'}},
+                {name:'仓位', type:'area', xAxisIndex:1, yAxisIndex:2, data:res.history.map(h=>h.pos), itemStyle:{color:'#28a745', opacity:0.3}, step:'end'}
+            ]
+        });
+
+        // 日志
+        const logBody = document.getElementById('log-tbody');
+        logBody.innerHTML = res.logs.map(l => `
+            <tr>
+                <td>${l.date}</td>
+                <td style="text-align:center">${l.action}</td>
+                <td style="text-align:center">${l.dy}</td>
+                <td style="color:#666;font-size:11px;">${l.reason}</td>
+            </tr>
+        `).join('');
+    }
+
+    // === 组合逻辑 (简单等权) ===
+    function runPortfolioStrategy() {
+        if(!batchResults.length) return;
+        // 简单合成：每天将所有持仓股票收益平均
+        // 1. Align dates
+        let dateMap = {};
+        batchResults.forEach(res => {
+            res.history.forEach(h => {
+                if(!dateMap[h.date]) dateMap[h.date] = { count:0, sumRet:0, sumYield:0, stocks:0 };
+                // 每日收益率
+                // 注意：这里需要重新算每日收益，因为 res.history 存的是 nav
+                // 简化处理：直接用 res.history[i] 和 [i-1] 计算当天涨跌幅
+            });
+        });
+        
+        let dates = Object.keys(dateMap).sort();
+        let portNav = 1.0;
+        let portHist = [];
+        let maxDD = 0, peak = 1.0;
+
+        for(let i=1; i<dates.length; i++) {
+            let today = dates[i];
+            let prevDay = dates[i-1];
+            
+            let dailySumRet = 0;
+            let activeCount = 0;
+            let currentYieldSum = 0;
+            let currentYieldCount = 0;
+
+            batchResults.forEach(res => {
+                // 找到这一天的数据
+                const dNow = res.history.find(h => h.date === today);
+                const dPrev = res.history.find(h => h.date === prevDay);
+                
+                if(dNow && dPrev) {
+                    // 如果上一日是持仓状态
+                    if(dPrev.pos > 0) {
+                        const r = (dNow.close / dPrev.close) - 1;
+                        dailySumRet += r;
+                        activeCount++;
+                    }
+                    if(dNow.dy) {
+                        currentYieldSum += dNow.dy;
+                        currentYieldCount++;
+                    }
+                }
+            });
+
+            // 资金分配：简单假设均分到所有选中的股票中，哪怕它没发信号（即空仓也占位），
+            // 或者：仅均分到有信号的股票。这里采用“仅有信号的股票均分资金” (Active Weight)。
+            // 修正：如果那天没有任何股票持仓，收益为0。
+            let avgRet = activeCount > 0 ? (dailySumRet / activeCount) : 0;
+            
+            // 扣除一点交易成本? 暂忽略
+            portNav = portNav * (1 + avgRet);
+            if(portNav > peak) peak = portNav;
+            let dd = (peak - portNav) / peak; if(dd > maxDD) maxDD = dd;
+            
+            portHist.push({
+                date: today,
+                nav: portNav,
+                avgYield: currentYieldCount > 0 ? (currentYieldSum / currentYieldCount) : 0
+            });
+        }
+        
+        // 渲染组合图表
+        const pLast = portHist[portHist.length-1];
+        if(!pLast) return;
+
+        document.getElementById('port-ret').innerText = ((pLast.nav - 1)*100).toFixed(2) + "%";
+        document.getElementById('port-ret').className = pLast.nav >= 1 ? 'stat-val win' : 'stat-val loss';
+        document.getElementById('port-dd').innerText = (maxDD * 100).toFixed(2) + "%";
+        document.getElementById('port-yield').innerText = pLast.avgYield.toFixed(2) + "%";
+
+        const dom = document.getElementById('portfolio-chart');
+        if(portfolioChart) portfolioChart.dispose();
+        portfolioChart = echarts.init(dom);
+        
+        portfolioChart.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['组合净值','平均股息率(右)'] },
+            xAxis: { data: portHist.map(h=>h.date) },
+            yAxis: [{name:'净值'}, {name:'股息率%', position:'right', splitLine:{show:false}}],
+            series: [
+                {name:'组合净值', type:'line', data:portHist.map(h=>h.nav), itemStyle:{color:'#d32f2f'}, areaStyle:{opacity:0.1}},
+                {name:'平均股息率(右)', type:'line', yAxisIndex:1, data:portHist.map(h=>h.avgYield), itemStyle:{color:'#1976d2'}, lineStyle:{width:1, type:'dashed'}}
+            ]
+        });
+    }
+
+</script>
+</body>
+</html>
