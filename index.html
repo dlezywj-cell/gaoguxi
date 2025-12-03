@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>高股息轮动策略 (Excel版)</title>
+    <title>高股息轮动策略 (Excel智能版)</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <!-- 引入 SheetJS 用于解析 Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
@@ -40,7 +40,8 @@
         .form-group { flex: 1; min-width: 0; }
         .form-group label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
         .form-group input, .form-group select { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ddd; border-radius: 6px; outline: none; font-size:13px; background:#fff;}
-        
+        .form-group input:focus { border-color: #007bff; box-shadow: 0 0 0 2px rgba(0,123,255,0.1); }
+
         .run-bar { display: flex; gap: 10px; align-items: flex-end; background:#f8f9fa; padding:10px; border-radius:6px; margin-top:0; }
         @media (max-width: 600px) {
             .run-bar { flex-wrap: wrap; }
@@ -118,13 +119,14 @@
             </div>
         </div>
         
+        <!-- 手动修改区 -->
         <div class="form-row" style="margin-top:10px;">
             <div class="form-group" style="flex:2"><label>股票名称</label><input type="text" id="inName" placeholder="如: 农业银行"></div>
-            <div class="form-group" style="flex:1.5"><label>代码</label><input type="text" id="inCode" readonly></div>
+            <div class="form-group" style="flex:1.5"><label>代码</label><input type="text" id="inCode" placeholder="如: 601288"></div>
         </div>
         <div class="form-row">
             <div class="form-group"><label>年度总现金分红(元)</label><input type="number" id="inDividend" placeholder="例如: 70000000000"></div>
-            <button class="btn btn-blue" style="margin-bottom:1px;" onclick="saveStock()">➕ 修改/添加单条</button>
+            <button class="btn btn-blue" id="btn-save-single" style="margin-bottom:1px;" onclick="saveStock()">➕ 添加/保存修改</button>
         </div>
 
         <div style="display:flex; gap:10px; margin-top:15px; border-top:1px solid #eee; padding-top:15px;">
@@ -323,7 +325,7 @@
         el.style.display = (el.style.display === 'block') ? 'none' : 'block';
     }
 
-    // === Excel 导入逻辑 (SheetJS) ===
+    // === Excel 导入逻辑 (智能修复版) ===
     function importFromExcel(input) {
         const file = input.files[0];
         if(!file) return;
@@ -334,46 +336,60 @@
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, {type: 'array'});
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1}); // 数组格式
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1}); 
 
                 if(jsonData.length < 2) throw new Error("Excel 数据太少");
                 
-                // 简单的列名识别
+                // 1. 识别列名
                 const headers = jsonData[0].map(h => String(h).trim());
-                const codeIdx = headers.findIndex(h => h.includes("代码") || h.includes("Code"));
-                const nameIdx = headers.findIndex(h => h.includes("名称") || h.includes("Name"));
-                const divIdx = headers.findIndex(h => h.includes("分红") || h.includes("Dividend") || h.includes("派息"));
+                const codeIdx = headers.findIndex(h => /代码|Code/i.test(h));
+                const nameIdx = headers.findIndex(h => /名称|Name/i.test(h));
+                const divIdx = headers.findIndex(h => /分红|Dividend|派息|红利/i.test(h));
 
                 if(codeIdx === -1 || divIdx === -1) {
-                    alert("❌ 无法识别列名。请确保 Excel 第一行包含【代码】和【分红】列。");
+                    alert("❌ 无法识别列名。\n\n请确保 Excel 第一行包含：\n1. 【代码】\n2. 【分红】(年度现金分红总额)");
                     return;
                 }
 
                 let newStocks = [];
                 let today = new Date().toISOString().split('T')[0];
+                let smallValueCount = 0; 
 
                 for(let i=1; i<jsonData.length; i++) {
                     const row = jsonData[i];
-                    if(!row[codeIdx]) continue;
-                    
+                    if(!row[codeIdx]) continue; 
+
                     let rawCode = String(row[codeIdx]).trim();
-                    // 简单的后缀补全
                     let suffix = "";
                     if (/^\d{5}$/.test(rawCode)) suffix = ".HK"; 
                     else if (/^\d{6}$/.test(rawCode)) suffix = rawCode.startsWith('6') ? ".SH" : ".SZ";
-                    
                     if(!rawCode.includes('.')) rawCode += suffix;
 
-                    let divVal = parseFloat(row[divIdx]);
-                    if(isNaN(divVal)) divVal = 0;
+                    // 分红处理
+                    let rawDiv = row[divIdx];
+                    let divVal = 0;
+                    if (rawDiv) {
+                        let strVal = String(rawDiv).replace(/,/g, '');
+                        let multiplier = 1;
+                        if (strVal.includes('亿')) { multiplier = 100000000; strVal = strVal.replace('亿', ''); } 
+                        else if (strVal.includes('万')) { multiplier = 10000; strVal = strVal.replace('万', ''); }
+                        divVal = parseFloat(strVal);
+                        if (!isNaN(divVal)) divVal = divVal * multiplier; else divVal = 0;
+                    }
 
-                    // 这里的 dividend 是年度总分红(元)
+                    if(divVal > 0 && divVal < 1000000) smallValueCount++;
+
                     newStocks.push({
                         code: rawCode,
-                        name: row[nameIdx] || rawCode,
+                        name: (nameIdx !== -1 && row[nameIdx]) ? row[nameIdx] : rawCode,
                         dividend: divVal,
                         lastMod: today
                     });
+                }
+
+                if(smallValueCount > newStocks.length * 0.5) {
+                    let fix = confirm(`⚠️ 警告：检测到大部分分红数值较小。\n\n系统需要【元】为单位。\n● 如果你填的是【亿元】(如50代表50亿)，请点【确定】。\n● 如果确实是元，请点【取消】。`);
+                    if(fix) newStocks.forEach(s => s.dividend = s.dividend * 100000000);
                 }
 
                 if(confirm(`解析成功！共找到 ${newStocks.length} 条数据。\n是否覆盖当前列表？`)) {
@@ -381,12 +397,13 @@
                     localStorage.setItem('divStocks', JSON.stringify(stocks));
                     renderTable();
                     setLocalChanges(true);
-                    alert("✅ 导入成功！记得点击【保存配置到 GitHub】");
+                    alert("✅ 导入成功！");
                 }
             } catch(err) {
+                console.error(err);
                 alert("❌ 读取 Excel 失败: " + err.message);
             }
-            input.value = ''; // 重置 file input
+            input.value = ''; 
         };
         reader.readAsArrayBuffer(file);
     }
@@ -395,7 +412,6 @@
     function renderTable() {
         const tb = document.getElementById('stock-tbody'); 
         tb.innerHTML = stocks.map((s, i) => {
-            // 格式化大数字
             let divStr = (s.dividend / 100000000).toFixed(2) + "亿";
             return `
             <tr>
@@ -412,30 +428,51 @@
         checkAllState();
     }
 
+    // 编辑：填充到上方输入框
     function editStock(i) {
         const s = stocks[i];
+        if(!s) return;
         document.getElementById('inName').value = s.name;
         document.getElementById('inCode').value = s.code;
         document.getElementById('inDividend').value = s.dividend;
+        
+        // UI反馈
+        const btn = document.getElementById('btn-save-single');
+        const originalText = btn.innerText;
+        btn.innerText = "✍️ 准备保存修改...";
+        setTimeout(() => btn.innerText = originalText, 1500);
+        
         document.getElementById('card-config').scrollIntoView({behavior: 'smooth'});
+        document.getElementById('inDividend').focus();
     }
 
+    // 保存单条（新增或修改）
     function saveStock() {
-        const code = document.getElementById('inCode').value; 
-        const name = document.getElementById('inName').value; 
+        const code = document.getElementById('inCode').value.trim(); 
+        const name = document.getElementById('inName').value.trim(); 
         const div = parseFloat(document.getElementById('inDividend').value);
-        if(!code || isNaN(div)) return alert("请填写完整，代码可从列表选择编辑或手动输入");
+        if(!code || isNaN(div)) return alert("请填写完整：代码、名称、分红金额");
         
         const today = new Date().toISOString().split('T')[0];
         const item = { code, name, dividend: div, lastMod: today }; 
         
         const idx = stocks.findIndex(s => s.code === code);
-        if(idx >= 0) stocks[idx] = item; else stocks.push(item); 
+        if(idx >= 0) {
+            stocks[idx] = item; // 更新
+            alert(`已更新：${name}`);
+        } else {
+            stocks.push(item); // 新增
+            alert(`已添加：${name}`);
+        }
         
         localStorage.setItem('divStocks', JSON.stringify(stocks)); 
         renderTable(); 
         setLocalChanges(true);
-        alert("已更新本地列表");
+        
+        // 清空输入框方便下一次
+        document.getElementById('inCode').value = '';
+        document.getElementById('inName').value = '';
+        document.getElementById('inDividend').value = '';
     }
 
     function delStock(i) {
@@ -512,8 +549,6 @@
         let emSecId = getEmSecId(stock.code); 
         let emCode = emSecId.split('.')[1];
 
-        // 1. 获取总股本 (Total Shares) 以计算市值
-        // f20 = 总市值(元), f2 = 最新价. TotalShares = f20 / f2.
         const snapUrl = `https://push2.eastmoney.com/api/qt/ulist.np/get?secids=${emSecId}&fields=f2,f20&invt=2&fltt=2`;
         const snapRes = await fetch(PROXY + encodeURIComponent(snapUrl));
         const snapJson = await snapRes.json();
@@ -526,24 +561,21 @@
         
         if(!totalShares) throw new Error(`无法获取股本数据 (API限制或退市)`);
 
-        // 2. 获取K线
         const klines = await fetchEmKline(emSecId);
         if(!klines || klines.length === 0) throw new Error("无K线数据");
 
-        // 3. 回测循环
         const userStartDate = document.getElementById('inStartDate').value;
         const userEndDate = document.getElementById('inEndDate').value;
-        const totalDiv = stock.dividend; // 用户填写的年度总分红(元)
+        const totalDiv = stock.dividend; 
 
         let history = []; 
         let logs = [];
         let nav = 1.0; 
-        let hold = 0; // 0 或 1 (代表 targetPos)
+        let hold = 0; 
         let daysHeld = 0;
         let sumYield = 0; 
         let yieldCount = 0;
 
-        // K线处理
         let filteredKlines = [];
         klines.forEach(k => {
             const parts = k.split(',');
@@ -554,7 +586,6 @@
         
         if(filteredKlines.length === 0) throw new Error("日期范围内无数据");
 
-        // 初始化
         history.push({ 
             date: filteredKlines[0].date, 
             nav: 1.0, 
@@ -563,21 +594,15 @@
             dy: (totalDiv / (filteredKlines[0].close * totalShares)) * 100 
         });
 
-        // Loop
         for(let i=1; i<filteredKlines.length; i++) {
             const d = filteredKlines[i];
             const prevD = filteredKlines[i-1];
             
-            // 每日计算股息率 = 总分红 / (股价 * 总股本)
-            // 假设回测期间股本不变 (简化)
             const marketCap = d.close * totalShares;
             const currentYield = (totalDiv / marketCap) * 100; // %
             
-            // 统计用
             sumYield += currentYield; yieldCount++;
 
-            // 策略逻辑：只在调仓日检查
-            // i % rebalanceFreq (简单近似)
             let action = null;
             let reason = "";
 
@@ -597,7 +622,6 @@
                 }
             }
             
-            // 计算净值
             const r = (d.close / prevD.close) - 1;
             nav = nav * (1 + hold * r);
             if(hold > 0) daysHeld++;
@@ -649,7 +673,6 @@
                 res.index = i; 
                 batchResults.push(res); 
                 
-                // 添加到表格
                 const tr = document.createElement('tr');
                 tr.onclick = () => showDetail(i);
                 const cRet = res.stats.ret >= 0 ? 'val-pos' : 'val-neg';
@@ -667,7 +690,7 @@
         if(batchResults.length > 0) {
             document.getElementById('results-container').style.display = 'block';
             runPortfolioStrategy();
-            showDetail(batchResults[0].index); // 默认展示第一个
+            showDetail(batchResults[0].index); 
         }
     }
 
@@ -678,7 +701,6 @@
         document.getElementById('detail-view').style.display = 'block';
         document.getElementById('detail-title').innerText = `${res.stockName} (${res.stockCode})`;
         document.querySelectorAll('.summary-table tr').forEach(r => r.classList.remove('selected'));
-        // 简单高亮逻辑省略...
         
         const dom = document.getElementById('chart-box'); 
         if(myChart) myChart.dispose(); 
@@ -703,7 +725,6 @@
             ]
         });
 
-        // 日志
         const logBody = document.getElementById('log-tbody');
         logBody.innerHTML = res.logs.map(l => `
             <tr>
@@ -715,18 +736,12 @@
         `).join('');
     }
 
-    // === 组合逻辑 (简单等权) ===
     function runPortfolioStrategy() {
         if(!batchResults.length) return;
-        // 简单合成：每天将所有持仓股票收益平均
-        // 1. Align dates
         let dateMap = {};
         batchResults.forEach(res => {
             res.history.forEach(h => {
                 if(!dateMap[h.date]) dateMap[h.date] = { count:0, sumRet:0, sumYield:0, stocks:0 };
-                // 每日收益率
-                // 注意：这里需要重新算每日收益，因为 res.history 存的是 nav
-                // 简化处理：直接用 res.history[i] 和 [i-1] 计算当天涨跌幅
             });
         });
         
@@ -738,19 +753,15 @@
         for(let i=1; i<dates.length; i++) {
             let today = dates[i];
             let prevDay = dates[i-1];
-            
             let dailySumRet = 0;
             let activeCount = 0;
             let currentYieldSum = 0;
             let currentYieldCount = 0;
 
             batchResults.forEach(res => {
-                // 找到这一天的数据
                 const dNow = res.history.find(h => h.date === today);
                 const dPrev = res.history.find(h => h.date === prevDay);
-                
                 if(dNow && dPrev) {
-                    // 如果上一日是持仓状态
                     if(dPrev.pos > 0) {
                         const r = (dNow.close / dPrev.close) - 1;
                         dailySumRet += r;
@@ -763,12 +774,7 @@
                 }
             });
 
-            // 资金分配：简单假设均分到所有选中的股票中，哪怕它没发信号（即空仓也占位），
-            // 或者：仅均分到有信号的股票。这里采用“仅有信号的股票均分资金” (Active Weight)。
-            // 修正：如果那天没有任何股票持仓，收益为0。
             let avgRet = activeCount > 0 ? (dailySumRet / activeCount) : 0;
-            
-            // 扣除一点交易成本? 暂忽略
             portNav = portNav * (1 + avgRet);
             if(portNav > peak) peak = portNav;
             let dd = (peak - portNav) / peak; if(dd > maxDD) maxDD = dd;
@@ -780,7 +786,6 @@
             });
         }
         
-        // 渲染组合图表
         const pLast = portHist[portHist.length-1];
         if(!pLast) return;
 
@@ -804,7 +809,6 @@
             ]
         });
     }
-
 </script>
 </body>
 </html>
